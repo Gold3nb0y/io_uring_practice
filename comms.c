@@ -80,6 +80,7 @@ void reciever(int listenfd){
     int ready;
     struct io_data* data;
     struct io_uring_cqe* cqe;
+    unsigned int head;
 
     events = ready = 0;
     signal(SIGABRT, cleanup);
@@ -91,43 +92,28 @@ void reciever(int listenfd){
 
     while(1){
         if(events >= QD){
-            if(!ready){
-                ret = io_uring_wait_cqe(&ring, &cqe);
-                ready = 1;
-            } else {
-                ret = io_uring_peek_cqe(&ring, &cqe);
-                if(ret == -EAGAIN) {
-                    cqe = NULL;
-                    ret = 0;
-                }
-            }
-            if(ret < 0){
-                LOG_ERR("io_uring_peek_cqe");
-                cleanup(SIGABRT);
-            }
-            if(!cqe){
-                usleep(500);
-                continue;
-            }
-            data = io_uring_cqe_get_data(cqe);
-            if(cqe->res < 0){
-                if(cqe->res == -EAGAIN){
-                    //requeue
-                    queue(listenfd, BS);
-                    io_uring_cqe_seen(&ring, cqe);
-                    continue;
-                } else {
-                    printf("[!] io_uring_cqe: %s\n", strerror(-cqe->res));
-                    cleanup(SIGABRT);
+            ret = io_uring_wait_cqe(&ring, &cqe);
+            io_uring_for_each_cqe(&ring, head, cqe){
+                data = io_uring_cqe_get_data(cqe);
+                if(cqe->res < 0){
+                    if(cqe->res == -EAGAIN){
+                        //requeue
+                        queue(listenfd, BS);
+                        io_uring_cqe_seen(&ring, cqe);
+                        continue;
+                    } else {
+                        printf("[!] io_uring_cqe: %s\n", strerror(-cqe->res));
+                        cleanup(SIGABRT);
+                    }
                 }
             }
             free(data);
-            events -= 3;
+            events -= 2;
             io_uring_cqe_seen(&ring, cqe);
         }
         
         queue(listenfd, BS);
-        events += 3;
+        events += 2;
     }
 }
 
